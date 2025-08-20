@@ -1,21 +1,18 @@
+// Imported packages
 use alloc::string::String;
 use alloy_primitives::{Address, U256};
-use stylus_sdk::{evm, msg, prelude::*};
+use alloy_sol_types::sol;
 use core::marker::PhantomData;
+use stylus_sdk::{
+    evm,
+    msg,
+    prelude::*,
+};
 
 pub trait Erc20Params {
     const NAME: &'static str;
     const SYMBOL: &'static str;
     const DECIMALS: u8;
-}
-
-sol_storage! {
-    pub struct Erc20<T> {
-        mapping(address => uint256) balances;
-        mapping(address => mapping(address => uint256)) allowances;
-        uint256 total_supply;
-        PhantomData<T> phantom;
-    }
 }
 
 sol! {
@@ -32,74 +29,41 @@ pub enum Erc20Error {
     InsufficientAllowance(InsufficientAllowance),
 }
 
-impl<T: Erc20Params> Erc20<T> {
-    pub fn _transfer(&mut self, from: Address, to: Address, value: U256) -> Result<(), Erc20Error> {
-        let mut sender_balance = self.balances.setter(from);
-        let old_sender_balance = sender_balance.get();
-        if old_sender_balance < value {
-            return Err(Erc20Error::InsufficientBalance(InsufficientBalance { from, have: old_sender_balance, want: value }));
+#[storage]
+pub struct ERC20<T> {
+    pub name: String,
+    pub symbol: String,
+    pub decimals: u8,
+    pub total_supply: U256,
+    pub balances: Mapping<Address, U256>,
+    pub allowances: Mapping<(Address, Address), U256>,
+    pub phantom: PhantomData<T>,
+}
+
+impl<T: Erc20Params> ERC20<T> {
+    pub fn _transfer(
+        &mut self,
+        from: Address,
+        to: Address,
+        value: U256,
+    ) -> Result<(), Erc20Error> {
+        let sender_balance = self.balances.get(from).unwrap_or(U256::zero());
+        if sender_balance < value {
+            return Err(Erc20Error::InsufficientBalance(InsufficientBalance {
+                from,
+                have: sender_balance,
+                want: value,
+            }));
         }
-        sender_balance.set(old_sender_balance - value);
-
-        let mut to_balance = self.balances.setter(to);
-        to_balance.set(to_balance.get() + value);
-
+        self.balances.insert(from, sender_balance - value);
+        let recipient_balance = self.balances.get(to).unwrap_or(U256::zero());
+        self.balances.insert(to, recipient_balance + value);
         evm::log(Transfer { from, to, value });
         Ok(())
     }
 
-    pub fn mint(&mut self, address: Address, value: U256) -> Result<(), Erc20Error> {
-        let mut balance = self.balances.setter(address);
-        balance.set(balance.get() + value);
-        self.total_supply.set(self.total_supply.get() + value);
-        evm::log(Transfer { from: Address::ZERO, to: address, value });
-        Ok(())
-    }
-
-    pub fn burn(&mut self, address: Address, value: U256) -> Result<(), Erc20Error> {
-        let mut balance = self.balances.setter(address);
-        let old_balance = balance.get();
-        if old_balance < value {
-            return Err(Erc20Error::InsufficientBalance(InsufficientBalance { from: address, have: old_balance, want: value }));
-        }
-        balance.set(old_balance - value);
-        self.total_supply.set(self.total_supply.get() - value);
-        evm::log(Transfer { from: address, to: Address::ZERO, value });
-        Ok(())
-    }
-}
-
-#[public]
-impl<T: Erc20Params> Erc20<T> {
-    pub fn name() -> String { T::NAME.into() }
-    pub fn symbol() -> String { T::SYMBOL.into() }
-    pub fn decimals() -> u8 { T::DECIMALS }
-    pub fn total_supply(&self) -> U256 { self.total_supply.get() }
-    pub fn balance_of(&self, owner: Address) -> U256 { self.balances.get(owner) }
-
-    pub fn transfer(&mut self, to: Address, value: U256) -> Result<bool, Erc20Error> {
-        self._transfer(msg::sender(), to, value)?;
-        Ok(true)
-    }
-
-    pub fn transfer_from(&mut self, from: Address, to: Address, value: U256) -> Result<bool, Erc20Error> {
-        let mut allowance = self.allowances.setter(from).setter(msg::sender());
-        let old_allowance = allowance.get();
-        if old_allowance < value {
-            return Err(Erc20Error::InsufficientAllowance(InsufficientAllowance { owner: from, spender: msg::sender(), have: old_allowance, want: value }));
-        }
-        allowance.set(old_allowance - value);
-        self._transfer(from, to, value)?;
-        Ok(true)
-    }
-
-    pub fn approve(&mut self, spender: Address, value: U256) -> bool {
-        self.allowances.setter(msg::sender()).insert(spender, value);
-        evm::log(Approval { owner: msg::sender(), spender, value });
-        true
-    }
-
-    pub fn allowance(&self, owner: Address, spender: Address) -> U256 {
-        self.allowances.getter(owner).get(spender)
+    pub fn _approve(&mut self, owner: Address, spender: Address, value: U256) {
+        self.allowances.insert((owner, spender), value);
+        evm::log(Approval { owner, spender, value });
     }
 }
