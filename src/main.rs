@@ -6,5 +6,5 @@ pub extern "C" fn main() {}
 
 #[cfg(feature = "export-abi")]
 fn main() {
-    stylus_hello_world::print_from_args();
+    erc20_stylus::print_from_args();
 }

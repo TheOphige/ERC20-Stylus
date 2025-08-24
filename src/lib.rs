@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 mod erc20;
 
 /// Import items from the SDK. The prelude contains common traits and macros.
-use stylus_sdk::{alloy_primitives::U256, msg, prelude::*};
+use stylus_sdk::{alloy_primitives::{Address, U256}, msg, prelude::*};
 
 use crate::erc20::{Erc20, Erc20Error, Erc20Params};
 
@@ -39,8 +39,15 @@ impl StylusToken {
         Ok(())
     }
 
-    pub fn mint_to(&mut self, value: U256) -> Result<(), Erc20Error> {
-        self.erc20.burn(msg::sender(), value);
+    /// Mints tokens to another address
+    pub fn mint_to(&mut self, to: Address, value: U256) -> Result<(), Erc20Error> {
+        self.erc20.mint(to, value)?;
+        Ok(())
+    }
+
+    /// Burns tokens
+    pub fn burn(&mut self, value: U256) -> Result<(), Erc20Error> {
+        self.erc20.burn(msg::sender(), value)?;
         Ok(())
     }
 }
